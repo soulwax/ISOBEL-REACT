@@ -8,6 +8,13 @@
       "when": 1764727271929,
       "tag": "0000_clever_gideon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1766374483709,
+      "tag": "0001_absurd_calypso",
+      "breakpoints": true
     }
   ]
 }
