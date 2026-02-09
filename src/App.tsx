@@ -18,16 +18,12 @@ import DiscordLogin from "./components/DiscordLogin";
 import DiscordGuildsSidebar from "./components/DiscordGuildsSidebar";
 import GuildSettings from "./components/GuildSettings";
 import { useAuth } from "./hooks/useAuth";
-
-interface Guild {
-  id: string;
-  name: string;
-  icon: string | null;
-}
+import type { DiscordGuild } from "./types/discord";
 
 function App() {
-  const [selectedGuild, setSelectedGuild] = useState<Guild | null>(null);
+  const [selectedGuild, setSelectedGuild] = useState<DiscordGuild | null>(null);
   const { isAuthenticated } = useAuth();
+  const activeSelectedGuild = isAuthenticated ? selectedGuild : null;
 
   const handleGuildSelect = (guild: Guild) => {
     setSelectedGuild(guild);
@@ -42,11 +38,11 @@ function App() {
       {isAuthenticated && (
         <DiscordGuildsSidebar 
           onGuildSelect={handleGuildSelect}
-          selectedGuildId={selectedGuild?.id}
+          selectedGuildId={activeSelectedGuild?.id}
         />
       )}
-      {selectedGuild ? (
-        <GuildSettings guild={selectedGuild} onBack={handleBack} />
+      {activeSelectedGuild ? (
+        <GuildSettings guild={activeSelectedGuild} onBack={handleBack} />
       ) : (
         <>
       <nav className="nav">

@@ -2,23 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { API_BASE_URL } from '../lib/api-paths';
+import type { DiscordGuild } from '../types/discord';
 import './DiscordGuildsSidebar.css';
 
-interface Guild {
-  id: string;
-  name: string;
-  icon: string | null;
-  permissions: string | null;
-}
-
 interface DiscordGuildsSidebarProps {
-  onGuildSelect?: (guild: Guild) => void;
+  onGuildSelect?: (guild: DiscordGuild) => void;
   selectedGuildId?: string | null;
 }
 
 export default function DiscordGuildsSidebar({ onGuildSelect, selectedGuildId }: DiscordGuildsSidebarProps) {
-  const { isAuthenticated, session } = useAuth();
-  const [guilds, setGuilds] = useState<Guild[]>([]);
+  const { isAuthenticated } = useAuth();
+  const [guilds, setGuilds] = useState<DiscordGuild[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,12 +26,10 @@ export default function DiscordGuildsSidebar({ onGuildSelect, selectedGuildId }:
     const fetchGuilds = async () => {
       try {
         setLoading(true);
-        const authApiUrl = import.meta.env.PROD 
-          ? (import.meta.env.VITE_AUTH_API_URL || '/api')
-          : '/api';
-        
-        const response = await fetch(`${authApiUrl}/guilds`, {
+
+        const response = await fetch(`${API_BASE_URL}/guilds`, {
           credentials: 'include',
+          cache: 'no-store',
         });
 
         if (!response.ok) {
@@ -61,7 +54,7 @@ export default function DiscordGuildsSidebar({ onGuildSelect, selectedGuildId }:
     };
 
     fetchGuilds();
-  }, [isAuthenticated, session]);
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return null;

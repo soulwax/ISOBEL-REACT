@@ -67,10 +67,12 @@ export function createApp() {
 
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5, // Stricter for auth endpoints
+    max: 20,
     message: 'Too many authentication requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
+    // Session and CSRF polling happen frequently in the client; keep limits for auth actions.
+    skip: (req) => req.path.endsWith('/session') || req.path.endsWith('/csrf') || req.path.endsWith('/providers'),
   });
 
   // CORS middleware - improved security
@@ -171,6 +173,9 @@ export function createApp() {
         headers,
         body,
       }) as Parameters<typeof handler>[0];
+
+      // Auth.js expects a Next.js-style request carrying nextUrl.
+      (nextReq as unknown as { nextUrl: URL }).nextUrl = new URL(fullUrl);
 
       const nextRes = await handler(nextReq);
 
