@@ -3,6 +3,7 @@
 import { loadEnvWithSafeguard } from '../lib/load-env.js';
 loadEnvWithSafeguard();
 
+import { join } from 'path';
 import { and, eq } from "drizzle-orm";
 import express from "express";
 import rateLimit from "express-rate-limit";
@@ -36,8 +37,16 @@ if (process.env.VERCEL !== '1') {
   }
 }
 
-export function createApp() {
+export interface CreateAppOptions {
+  /** Serve static build and SPA fallback from this directory (single-process production). */
+  serveStatic?: boolean;
+  /** Directory containing the built frontend (default: process.cwd() + '/build'). */
+  buildDir?: string;
+}
+
+export function createApp(options: CreateAppOptions = {}) {
   const app = express();
+  const { serveStatic = false, buildDir = join(process.cwd(), 'build') } = options;
   const FRONTEND_URL = getEnv("NEXTAUTH_URL", "http://localhost:3001");
 
   // Trust proxy for Vercel (needed for correct protocol detection)
@@ -139,7 +148,7 @@ export function createApp() {
     next();
   });
 
-  // NextAuth API routes - match all paths starting with /api/auth/
+  // Auth.js API routes - match all paths starting with /api/auth/
   app.all(/^\/api\/auth\/.*/, authLimiter, async (req, res): Promise<void> => {
     try {
       // Lazy import handlers to avoid initialization errors at module load time
@@ -181,7 +190,7 @@ export function createApp() {
       const host = req.get("x-forwarded-host") || req.get("host") || "localhost:3001";
       const fullUrl = `${protocol}://${host}${req.originalUrl}`;
 
-      // Convert Express req to Next.js Request
+      // Convert Express req to Web Request for Auth.js
       const headers = new Headers();
       Object.entries(req.headers).forEach(([key, value]) => {
         if (value) {
@@ -200,18 +209,15 @@ export function createApp() {
         }
       }
 
-      const nextReq = new Request(fullUrl, {
+      const authReq = new Request(fullUrl, {
         method: req.method,
         headers,
         body,
       }) as Parameters<typeof handler>[0];
 
-      // Auth.js expects a Next.js-style request carrying nextUrl.
-      (nextReq as unknown as { nextUrl: URL }).nextUrl = new URL(fullUrl);
+      const nextRes = await handler(authReq);
 
-      const nextRes = await handler(nextReq);
-
-      // Convert Next.js Response to Express response
+      // Convert Auth.js Web Response to Express response
       const bodyText = await nextRes.text();
       res.status(nextRes.status);
 
@@ -477,95 +483,6 @@ export function createApp() {
     }
   });
 
-  // Health check endpoint - proxies to the bot's health server
-  app.get("/api/health", async (_req, res): Promise<void> => {
-    const botHealthUrl = getEnv("BOT_HEALTH_URL", "https://isobelhealth.soulwax.dev");
-    
-    // Normalize URL: handle trailing slash and /health path
-    let healthUrl = botHealthUrl.trim();
-    
-    // If /health is already in the URL, use it as-is
-    if (healthUrl.endsWith('/health')) {
-      // Already has /health, use as-is
-    } else if (healthUrl.endsWith('/')) {
-      // Has trailing slash, append 'health' (no leading slash)
-      healthUrl = `${healthUrl}health`;
-    } else {
-      // No trailing slash, append '/health'
-      healthUrl = `${healthUrl}/health`;
-    }
-
-    try {
-      logger.info(`Fetching bot health from ${healthUrl}`, { 
-        botHealthUrl, 
-        constructedUrl: healthUrl,
-        envVar: process.env.BOT_HEALTH_URL 
-      });
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        logger.warn("Health check timeout, aborting...", { url: healthUrl });
-        controller.abort();
-      }, 5000); // 5 second timeout
-
-      const response = await fetch(healthUrl, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'isobel-web/1.0',
-        },
-      });
-      clearTimeout(timeoutId);
-      
-      logger.info(`Bot health response status: ${response.status}`, { 
-        url: healthUrl,
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries(response.headers.entries())
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Unable to read error response');
-        logger.warn(`Bot health check failed`, {
-          url: healthUrl,
-          status: response.status,
-          statusText: response.statusText,
-          errorText: errorText.substring(0, 200), // Limit error text length
-        });
-        res.status(response.status).json({
-          status: "error",
-          ready: false,
-          error: `Bot health check failed with status ${response.status}: ${response.statusText}`,
-          url: healthUrl,
-        });
-        return;
-      }
-
-      const data = await response.json();
-      logger.debug(`Bot health check successful`, { data });
-      res.json(data);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorName = error instanceof Error ? error.name : 'UnknownError';
-      
-      logger.error("Error checking bot health", { 
-        error: errorMessage,
-        errorName,
-        url: healthUrl,
-        botHealthUrl,
-        envVar: process.env.BOT_HEALTH_URL,
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      
-      res.status(503).json({
-        status: "error",
-        ready: false,
-        error: `Unable to connect to bot health server: ${errorMessage}`,
-        url: healthUrl,
-        errorName,
-      });
-    }
-  });
-
   // Web server health check
   app.get("/health", (_req, res) => {
     res.json({
@@ -575,6 +492,14 @@ export function createApp() {
       service: "isobel-web",
     });
   });
+
+  // Optional: serve static build + SPA fallback (single-process deployment)
+  if (serveStatic) {
+    app.use(express.static(buildDir));
+    app.use((_req, res) => {
+      res.sendFile(join(buildDir, 'index.html'));
+    });
+  }
 
   // Error handler middleware (must be last)
   app.use(errorHandler);
